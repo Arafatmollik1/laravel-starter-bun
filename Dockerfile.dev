@@ -1,0 +1,44 @@
+# Development Dockerfile (with dev dependencies)
+FROM dunglas/frankenphp:latest
+
+# Install system dependencies and PHP extensions
+RUN install-php-extensions \
+    pcntl \
+    pdo_pgsql \
+    redis \
+    zip \
+    gd \
+    intl \
+    opcache
+
+# Install unzip (required for Bun) and Bun
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && \
+    curl -fsSL https://bun.sh/install | bash && \
+    cp /root/.bun/bin/bun /usr/local/bin/bun && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Set working directory
+WORKDIR /app
+
+# Copy application files
+COPY . .
+
+# Install PHP dependencies
+RUN composer install --no-interaction --prefer-dist
+
+# Install Node dependencies
+RUN bun install
+
+# Set permissions
+RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache && \
+    chmod -R 775 /app/storage /app/bootstrap/cache
+
+# Expose port
+EXPOSE 8000
+
+# Default command - Start Octane with FrankenPHP in watch mode for development
+CMD ["php", "artisan", "octane:start", "--server=frankenphp", "--host=0.0.0.0", "--port=8000", "--watch"]
+

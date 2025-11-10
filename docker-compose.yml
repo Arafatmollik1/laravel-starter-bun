@@ -1,0 +1,402 @@
+services:
+  # Laravel Application (Octane + FrankenPHP)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: laravel-octane-app:latest
+    container_name: laravel-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      APP_NAME: ${APP_NAME:-Laravel}
+      APP_ENV: ${APP_ENV:-production}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      APP_URL: ${APP_URL:-http://localhost}
+      
+      # Database (via PgBouncer)
+      DB_CONNECTION: pgsql
+      DB_HOST: pgbouncer
+      DB_PORT: 6432
+      DB_DATABASE: ${DB_DATABASE:-laravel}
+      DB_USERNAME: ${DB_USERNAME:-laravel}
+      DB_PASSWORD: ${DB_PASSWORD:-laravel}
+      
+      # Direct PostgreSQL connection for migrations
+      DB_DIRECT_HOST: ${DB_DIRECT_HOST:-postgres}
+      DB_DIRECT_PORT: ${DB_DIRECT_PORT:-5432}
+      
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-null}
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      
+      # Cache & Session
+      CACHE_DRIVER: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      
+      # Octane
+      OCTANE_SERVER: frankenphp
+      
+      # X-Forwarded headers
+      TRUSTED_PROXIES: '*'
+      FORWARDED_HEADERS: 'X-Forwarded-For,X-Forwarded-Proto,X-Forwarded-Host'
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laravel-network
+    healthcheck:
+      test: ["CMD", "php", "artisan", "octane:status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    profiles:
+      - prod
+
+  # Laravel Application (Development)
+  app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: laravel-octane-app:dev
+    container_name: laravel-app-dev
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      APP_NAME: ${APP_NAME:-Laravel}
+      APP_ENV: ${APP_ENV:-local}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      APP_URL: ${APP_URL:-http://localhost:8000}
+      
+      # Database (via PgBouncer)
+      DB_CONNECTION: pgsql
+      DB_HOST: pgbouncer
+      DB_PORT: 6432
+      DB_DATABASE: ${DB_DATABASE:-laravel}
+      DB_USERNAME: ${DB_USERNAME:-laravel}
+      DB_PASSWORD: ${DB_PASSWORD:-laravel}
+      
+      # Direct PostgreSQL connection for migrations
+      DB_DIRECT_HOST: postgres
+      DB_DIRECT_PORT: 5432
+      
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-null}
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      
+      # Cache & Session
+      CACHE_DRIVER: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      
+      # Octane
+      OCTANE_SERVER: frankenphp
+      
+      # X-Forwarded headers
+      TRUSTED_PROXIES: '*'
+      FORWARDED_HEADERS: 'X-Forwarded-For,X-Forwarded-Proto,X-Forwarded-Host'
+    volumes:
+      - .:/app
+      - ./storage:/app/storage
+      - /app/vendor
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laravel-network
+    profiles:
+      - dev
+
+  # Queue Worker (Production)
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: laravel-octane-app:latest
+    container_name: laravel-queue
+    restart: unless-stopped
+    command: php artisan queue:work redis --sleep=3 --tries=3 --max-time=3600
+    environment:
+      APP_NAME: ${APP_NAME:-Laravel}
+      APP_ENV: ${APP_ENV:-production}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      
+      # Database (via PgBouncer)
+      DB_CONNECTION: pgsql
+      DB_HOST: pgbouncer
+      DB_PORT: 6432
+      DB_DATABASE: ${DB_DATABASE:-laravel}
+      DB_USERNAME: ${DB_USERNAME:-laravel}
+      DB_PASSWORD: ${DB_PASSWORD:-laravel}
+      
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-null}
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      
+      QUEUE_CONNECTION: redis
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      - app
+      - redis
+      - pgbouncer
+    networks:
+      - laravel-network
+    profiles:
+      - prod
+
+  # Queue Worker (Development)
+  queue-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: laravel-octane-app:dev
+    container_name: laravel-queue-dev
+    restart: unless-stopped
+    command: php artisan queue:work redis --sleep=3 --tries=3 --max-time=3600
+    environment:
+      APP_NAME: ${APP_NAME:-Laravel}
+      APP_ENV: ${APP_ENV:-local}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      
+      # Database (via PgBouncer)
+      DB_CONNECTION: pgsql
+      DB_HOST: pgbouncer
+      DB_PORT: 6432
+      DB_DATABASE: ${DB_DATABASE:-laravel}
+      DB_USERNAME: ${DB_USERNAME:-laravel}
+      DB_PASSWORD: ${DB_PASSWORD:-laravel}
+      
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-null}
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      
+      QUEUE_CONNECTION: redis
+    volumes:
+      - .:/app
+      - ./storage:/app/storage
+    depends_on:
+      - app-dev
+      - redis
+      - pgbouncer
+    networks:
+      - laravel-network
+    profiles:
+      - dev
+
+  # Scheduler (Production)
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: laravel-octane-app:latest
+    container_name: laravel-scheduler
+    restart: unless-stopped
+    command: php artisan schedule:work --verbose --no-interaction
+    environment:
+      APP_NAME: ${APP_NAME:-Laravel}
+      APP_ENV: ${APP_ENV:-production}
+      APP_KEY: ${APP_KEY}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      
+      # Database (via PgBouncer)
+      DB_CONNECTION: pgsql
+      DB_HOST: pgbouncer
+      DB_PORT: 6432
+      DB_DATABASE: ${DB_DATABASE:-laravel}
+      DB_USERNAME: ${DB_USERNAME:-laravel}
+      DB_PASSWORD: ${DB_PASSWORD:-laravel}
+      
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-null}
+      REDIS_PORT: 6379
+    volumes:
+      - .:/app
+      - ./storage:/app/storage
+    depends_on:
+      - app
+      - redis
+      - pgbouncer
+    networks:
+      - laravel-network
+    profiles:
+      - prod
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: laravel-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-laravel}
+      POSTGRES_USER: ${DB_USERNAME:-laravel}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-laravel}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - laravel-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-laravel} -d ${DB_DATABASE:-laravel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - dev
+      - prod
+
+  # PgBouncer Connection Pooler
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    platform: linux/amd64
+    container_name: laravel-pgbouncer
+    restart: unless-stopped
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    environment:
+      DATABASES_HOST: postgres
+      DATABASES_PORT: 5432
+      DATABASES_USER: ${DB_USERNAME:-laravel}
+      DATABASES_PASSWORD: ${DB_PASSWORD:-laravel}
+      DATABASES_DBNAME: ${DB_DATABASE:-laravel}
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: 1000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 25
+    volumes:
+      - ./docker/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini
+      - ./docker/pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - laravel-network
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 6432 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - dev
+      - prod
+
+  # Redis Cache & Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: laravel-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-null}
+    volumes:
+      - redis_data:/data
+    networks:
+      - laravel-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - dev
+      - prod
+
+  # Umami Analytics
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: laravel-umami
+    restart: unless-stopped
+    ports:
+      - "${UMAMI_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://${UMAMI_DB_USER:-umami}:${UMAMI_DB_PASSWORD:-umami}@umami-db:5432/${UMAMI_DB_NAME:-umami}
+      DATABASE_TYPE: postgresql
+      HASH_SALT: ${UMAMI_HASH_SALT:-change-me-in-production}
+      APP_ENV: ${APP_ENV:-production}
+      ADMIN_USERNAME: ${UMAMI_ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${UMAMI_ADMIN_PASSWORD:-umami}
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    networks:
+      - laravel-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    profiles:
+      - dev
+      - prod
+
+  # Umami Database
+  umami-db:
+    image: postgres:16-alpine
+    container_name: laravel-umami-db
+    restart: unless-stopped
+    ports:
+      - "${UMAMI_DB_PORT:-5433}:5432"
+    environment:
+      POSTGRES_DB: ${UMAMI_DB_NAME:-umami}
+      POSTGRES_USER: ${UMAMI_DB_USER:-umami}
+      POSTGRES_PASSWORD: ${UMAMI_DB_PASSWORD:-umami}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - umami_db_data:/var/lib/postgresql/data
+    networks:
+      - laravel-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${UMAMI_DB_USER:-umami} -d ${UMAMI_DB_NAME:-umami}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - dev
+      - prod
+
+networks:
+  laravel-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  umami_db_data:
+    driver: local
+

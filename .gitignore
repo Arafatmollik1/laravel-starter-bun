@@ -31,3 +31,6 @@ bun.lockb
 **/caddy
 frankenphp
 frankenphp-worker.php
+
+# Docker volumes (if created locally)
+docker-volumes/
